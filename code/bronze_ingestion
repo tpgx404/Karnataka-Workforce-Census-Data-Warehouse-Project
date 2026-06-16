@@ -1,0 +1,48 @@
+import re
+from pyspark.sql.functions import col
+
+# Define your 4 specific data.gov.in entities
+entities = [
+    "st_main_workers", 
+    "sc_main_workers", 
+    "industrial_marginal_workers", 
+    "industrial_main_workers"
+]
+
+for entity in entities:
+    print(f"Starting ingestion for: {entity}")
+    
+    # Step 1: Read a batch of the CSV to infer the schema
+    df_batch = spark.read.format("csv") \
+        .option("header", True) \
+        .option("inferSchema", True) \
+        .load(f"/Volumes/pyspark_dbt/source/source_data/{entity}")
+    
+    # Step 2: BULLETPROOF SANITIZATION (Replaces ANY invalid character with an underscore)
+    sanitized_cols = []
+    for c in df_batch.columns:
+        # This says: If it's NOT a letter (a-z, A-Z) or a number (0-9), make it an underscore
+        clean_name = re.sub(r'[^a-zA-Z0-9]', '_', c)
+        sanitized_cols.append(clean_name)
+    
+    # Apply the sanitized column names to our batch dataframe
+    df_batch_clean = df_batch.toDF(*sanitized_cols)
+    entity_schema = df_batch_clean.schema
+    
+    # Step 3: Set up the read stream 
+    df_stream_raw = spark.readStream.format("csv") \
+        .option("header", True) \
+        .schema(df_batch.schema) \
+        .load(f"/Volumes/pyspark_dbt/source/source_data/{entity}")
+        
+    # Apply our clean column names to the streaming data before writing
+    df_stream = df_stream_raw.toDF(*sanitized_cols)
+        
+    # Step 4: Write smoothly to Delta table
+    df_stream.writeStream.format("delta") \
+        .outputMode("append") \
+        .option("checkpointLocation", f"/Volumes/pyspark_dbt/bronze/checkpoint/{entity}") \
+        .trigger(once=True) \
+        .toTable(f"pyspark_dbt.bronze.{entity}")
+        
+    print(f"Successfully ingested {entity} into Bronze layer!\n")
