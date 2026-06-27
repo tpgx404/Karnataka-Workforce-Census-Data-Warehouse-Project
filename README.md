@@ -147,7 +147,7 @@ Analytics / BI Dashboards
 
 The project uses publicly available Karnataka Government datasets from:
 
-**https://kar.data.gov.in**
+**https://karnataka.data.gov.in/**
 
 ---
 
